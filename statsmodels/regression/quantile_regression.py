@@ -87,7 +87,7 @@ class QuantReg(RegressionModel):
         return data
 
     def fit(self, q=.5, vcov='robust', kernel='epa', bandwidth='hsheather',
-            max_iter=1000, p_tol=1e-6, **kwargs):
+            max_iter=1000, p_tol=1e-6, weights=None, alpha=0., **kwargs):
         '''Solve by Iterative Weighted Least Squares
 
         Parameters
@@ -136,15 +136,24 @@ class QuantReg(RegressionModel):
         else:
             raise Exception("bandwidth must be in 'hsheather', 'bofinger', 'chamberlain'")
 
+        if weights is not None:
+            weights = np.array(weights)
+        if np.isscalar(alpha):
+            alpha = np.ones(self.exog.shape[1]) * alpha
+
         endog = self.endog
         exog = self.exog
         nobs = self.nobs
-        exog_rank = np_matrix_rank(self.exog)
+        # exog_rank = np_matrix_rank(self.exog)
+        exog_rank = self.exog.shape[1]
         self.rank = exog_rank
         self.df_model = float(self.rank - self.k_constant)
         self.df_resid = self.nobs - self.rank
         n_iter = 0
-        xstar = exog
+        if weights is None:
+            xstar = exog
+        else:
+            xstar = exog * weights[:, np.newaxis]
 
         beta = np.ones(exog_rank)
         # TODO: better start, initial beta is used only for convergence check
@@ -166,10 +175,12 @@ class QuantReg(RegressionModel):
         while n_iter < max_iter and diff > p_tol and not cycle:
             n_iter += 1
             beta0 = beta
-            xtx = np.dot(xstar.T, exog)
+            xtx = np.dot(xstar.T, exog) + np.diag(alpha)
             xty = np.dot(xstar.T, endog)
             beta = np.dot(pinv(xtx), xty)
             resid = endog - np.dot(exog, beta)
+            if weights is not None:
+                resid = resid / weights
 
             mask = np.abs(resid) < .000001
             resid[mask] = ((resid[mask] >= 0) * 2 - 1) * .000001
